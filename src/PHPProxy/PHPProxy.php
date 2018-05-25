@@ -43,6 +43,7 @@ class PHPProxy
 			"request_method" => isset($_SERVER["REQUEST_METHOD"]) ? $_SERVER["REQUEST_METHOD"] : "GET",
 			"headers" => getallheaders()
 		];
+		unset($this->clientRequest["headers"]["Cookie"]);
 		$this->clientRequest["headers"]["Host"] = $this->proxyHost;
 		$this->clientRequest["headers"]["Connection"] = "closed";
 	}
