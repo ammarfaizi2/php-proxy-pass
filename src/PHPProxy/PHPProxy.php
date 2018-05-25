@@ -69,8 +69,8 @@ class PHPProxy
 		$err = curl_error($ch);
 		$ern = curl_errno($ch);
 		foreach (explode("\n", $headers) as $header) {
-			$header = trim($header);
-			$header and header($header);
+			// $header = trim($header);
+			// $header and header($header);
 		}
 		print $out;
 	}
