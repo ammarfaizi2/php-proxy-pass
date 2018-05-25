@@ -72,6 +72,7 @@ class PHPProxy
 			// $header = trim($header);
 			// $header and header($header);
 		}
+		header("content-encoding: gzip");
 		print $out;
 	}
 }
