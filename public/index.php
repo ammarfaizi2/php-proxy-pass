@@ -15,23 +15,21 @@ $app = new PHPProxy(
 $app->bufferOnComplete = true;
 
 $app->afterCaptureRequest(function (&$requestHeaders, &$responseBody) {
-
+	// $requestHeaders = explode("\n", $requestHeaders);
+	// var_dump($requestHeaders);die;
 });
 
 $app->beforeSendResponse(function (&$responseHeaders, &$responseBody, $first = true) {
 	if ($first) {
-		foreach ($responseHeaders as $key => $value) {
-			if (preg_match("/content-security-policy|content-encoding/i", $value)) {
-				unset($responseHeaders[$key]);
-			}
-		}
-		$responseHeaders[] = "Content-Encoding: gzip";
+		
 	} else {
 		$rr = @gzdecode($responseBody);
+		$r1 = ["https://static.nhentai.net"];
+		$r2 = ["https://n1.teainside.me"];
 		if ($rr !== false) {
-			$responseBody = gzencode(str_replace(["https", "m.facebook.com"], ["http", $_SERVER["HTTP_HOST"]], $rr));
+			$responseBody = gzencode(str_replace($r1, $r2, $rr));
 		} else {
-			$responseBody = str_replace("m.facebook.com", $_SERVER["HTTP_HOST"], $rr);
+			$responseBody = str_replace($r1, $r2, $rr);
 		}
 	}
 });

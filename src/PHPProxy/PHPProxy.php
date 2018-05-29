@@ -77,6 +77,21 @@ class PHPProxy
 	public $crlf = "\r\n";
 
 	/**
+	 * @var int
+	 */
+	public $timeout = 300;
+
+	/**
+	 * @var string
+	 */
+	private $error;
+
+	/**
+	 * @var int
+	 */
+	private $errno = 0;
+
+	/**
 	 * @var bool
 	 */
 	public $bufferOnComplete = false;
@@ -148,15 +163,25 @@ class PHPProxy
 	 */
 	private function prepareSocks()
 	{
-		$this->fp = fsockopen(
-			($this->protocol==="https"?"ssl://":"").$this->host, $this->port
-		);
 		$this->requestHeaders 	= $this->buildRequestHeaders();
 		$this->requestBody		= file_get_contents("php://input");
 		$call = $this->afterCaptureRequest;
 		$call($this->requestHeaders, $this->requestBody);
+		$this->fp = fsockopen(
+			($this->protocol=== "https" ? "ssl://" : "").$this->host,
+			$this->port,
+			$this->errno,
+			$this->error,
+			$this->timeout
+		);
+		if (! $this->fp) {
+			header("Content-type:text/plain");
+			echo "Error: {$this->error} ({$this->errno})";
+			return false;
+		}
 		fwrite($this->fp, $this->requestHeaders);
 		fwrite($this->fp, $this->requestBody);
+		return true;
 	}
 
 	/**
@@ -178,39 +203,40 @@ class PHPProxy
 
 	public function run()
 	{
-		$this->prepareSocks();
-		if (is_resource($this->fp) && $this->fp && !feof($this->fp)) {
-			$firstResponse = fread($this->fp, 2048);
-			$firstResponse = explode($this->crlf.$this->crlf, $firstResponse, 2);
-			$headers = explode("\n", $firstResponse[0]);
-			$call = $this->beforeSendResponse;
-			$call($headers, $firstResponse[1]);
-			foreach ($headers as $header) {
-				$header = trim($header);
-				if (! empty($header)) {
-					$this->responseHeaders[] = $header;
-					header($header, false);
+		if ($this->prepareSocks()) {
+			if (is_resource($this->fp) && $this->fp && !feof($this->fp)) {
+				$firstResponse = fread($this->fp, 2048);
+				$firstResponse = explode($this->crlf.$this->crlf, $firstResponse, 2);
+				$headers = explode("\n", $firstResponse[0]);
+				$call = $this->beforeSendResponse;
+				$call($headers, $firstResponse[1]);
+				foreach ($headers as $header) {
+					$header = trim($header);
+					if (! empty($header)) {
+						$this->responseHeaders[] = $header;
+						header($header, false);
+					}
 				}
-			}
-			if ($this->bufferOnComplete) {
-				$responseBody = $firstResponse[1];
-				while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
-					$responseBody .= fread($this->fp, 1024);
-				}
-				$call($headers, $responseBody, false);
-				echo $responseBody;
-			} else {
-				echo $firstResponse[1];
-				flush();
-				while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
-					$out = fread($this->fp, 1024);
-					$call($headers, $out);
-					echo $out;
+				if ($this->bufferOnComplete) {
+					$responseBody = $firstResponse[1];
+					while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
+						$responseBody .= fread($this->fp, 1024);
+					}
+					$call($headers, $responseBody, false);
+					echo $responseBody;
+				} else {
+					echo $firstResponse[1];
 					flush();
+					while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
+						$out = fread($this->fp, 1024);
+						$call($headers, $out);
+						echo $out;
+						flush();
+					}
 				}
 			}
-		}
-        fclose($this->fp);
+	    }
+	    is_resource($this->fp) and fclose($this->fp);
 	}
 
 	/**
@@ -256,5 +282,3 @@ class PHPProxy
 		}
 	}
 }
-
-
