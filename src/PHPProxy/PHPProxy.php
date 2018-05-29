@@ -215,10 +215,12 @@ class PHPProxy
 				CURLOPT_HEADER => true,
 				CURLOPT_SSL_VERIFYHOST => false,
 				CURLOPT_SSL_VERIFYPEER => false,
-				CURLOPT_HTTPHEADER => array_map(function ($a) {
+				CURLOPT_HTTPHEADER => ($header = array_map(function ($a) {
 					return trim($a);
-				}, explode($this->crlf, $this->buildRequestHeaders()))
+				}, explode($this->crlf, $this->buildRequestHeaders())))
 			]);
+			var_dump($headers, $this->protocol."://".$this->host.":".$this->port.$this->path);
+			die;
 			$out = curl_exec($ch);
 			curl_close($ch);
 			$firstResponse = explode($this->crlf.$this->crlf, $out, 2);
