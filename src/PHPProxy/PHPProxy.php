@@ -77,6 +77,11 @@ class PHPProxy
 	public $crlf = "\r\n";
 
 	/**
+	 * @var bool
+	 */
+	public $bufferOnComplete = false;
+
+	/**
 	 * @var callable
 	 */
 	private $afterCaptureRequest;
@@ -165,7 +170,7 @@ class PHPProxy
 			$_SERVER["REQUEST_METHOD"]." ".$this->path." HTTP/1.0".$this->crlf
             ."Host: ".$this->host.$this->crlf;
         foreach (getallheaders() as $key => $value) {
-        	$header .= "{$key}: ".$value.$this->crlf;
+        	$key === "Host" or $header .= "{$key}: ".$value.$this->crlf;
         }
         $header .= $this->crlf;
         return $header;
@@ -187,14 +192,22 @@ class PHPProxy
 					header($header, false);
 				}
 			}
-			flush();
-			echo $firstResponse[1];
-			flush();
-			while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
-				$out = fread($this->fp, 1024);
-				call($headers, $out);
-				echo $out;
+			if ($this->bufferOnComplete) {
+				$responseBody = $firstResponse[1];
+				while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
+					$responseBody .= fread($this->fp, 1024);
+				}
+				$call($headers, $responseBody, false);
+				echo $responseBody;
+			} else {
+				echo $firstResponse[1];
 				flush();
+				while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
+					$out = fread($this->fp, 1024);
+					$call($headers, $out);
+					echo $out;
+					flush();
+				}
 			}
 		}
         fclose($this->fp);
