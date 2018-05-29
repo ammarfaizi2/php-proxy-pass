@@ -94,6 +94,11 @@ class PHPProxy
 	/**
 	 * @var bool
 	 */
+	public $useCurl = false;
+
+	/**
+	 * @var bool
+	 */
 	public $bufferOnComplete = false;
 
 	/**
@@ -189,7 +194,7 @@ class PHPProxy
 	 *
 	 * Build http request header.
 	 */
-	private function buildRequestHeaders()
+	private function buildRequestHeaders($type = "fsock")
 	{
 		$header = 
 			$_SERVER["REQUEST_METHOD"]." ".$this->path." HTTP/1.0".$this->crlf
@@ -203,6 +208,24 @@ class PHPProxy
 
 	public function run()
 	{
+		if ($this->useCurl) {
+			$ch = curl_init($this->protocol."://".$this->host.":".$this->port.$this->path);
+			curl_setopt_array($ch, [
+				CURLOPT_RETURNTRANSFER => true,
+				CURLOPT_HEADER => true,
+				CURLOPT_SSL_VERIFYHOST => false,
+				CURLOPT_SSL_VERIFYPEER => false,
+				CURLOPT_HTTPHEADER => array_map(function ($a) {
+					return trim($a);
+				}, explode($this->crlf, $this->buildRequestHeaders()))
+			]);
+			$out = curl_exec($ch);
+			curl_close($ch);
+			echo $out;
+			flush();
+			return;
+		}
+
 		if ($this->prepareSocks()) {
 			if (is_resource($this->fp) && $this->fp && !feof($this->fp)) {
 				$firstResponse = fread($this->fp, 2048);
@@ -220,7 +243,7 @@ class PHPProxy
 				if ($this->bufferOnComplete) {
 					$responseBody = $firstResponse[1];
 					while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
-						$responseBody .= fread($this->fp, 1024);
+						$responseBody .= fread($this->fp, 4096);
 					}
 					$call($headers, $responseBody, false);
 					echo $responseBody;
