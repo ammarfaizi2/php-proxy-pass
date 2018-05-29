@@ -32,9 +32,9 @@ $app->beforeSendResponse(function (&$responseHeaders, &$responseBody, $first = t
 	if ($first) {
 		foreach ($responseHeaders as $key => &$value) {
 			$value = str_replace(
-					["teainside.org"]
-					, ["php-proxy.my"]
-					, $value
+					["nhentai.net"]
+					,["teainside.me"]
+					,$value
 			);
 		}
 		
