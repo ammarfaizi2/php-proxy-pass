@@ -208,24 +208,30 @@ class PHPProxy
 
 	public function run()
 	{
+		$call = $this->beforeSendResponse;
 		if ($this->useCurl) {
+			$call2 = $this->afterCaptureRequest;
+			$out = "";
 			$ch = curl_init($this->protocol."://".$this->host.":".$this->port.$this->path);
-			curl_setopt_array($ch, [
+			$header = array_map(function ($a) {
+					return trim($a);
+			}, explode($this->crlf, $this->buildRequestHeaders()));
+			$call2($header, $out);
+			$opt = [
 				CURLOPT_RETURNTRANSFER => true,
 				CURLOPT_HEADER => true,
 				CURLOPT_SSL_VERIFYHOST => false,
 				CURLOPT_SSL_VERIFYPEER => false,
-				CURLOPT_HTTPHEADER => ($header = array_map(function ($a) {
-					return trim($a);
-				}, explode($this->crlf, $this->buildRequestHeaders())))
-			]);
-			var_dump($headers, $this->protocol."://".$this->host.":".$this->port.$this->path);
-			die;
+				CURLOPT_HTTPHEADER => $header
+			];
+			if ($_SERVER["REQUEST_METHOD"] !== "GET" and ($in = file_get_contents("php://input"))!=="") {
+				$opt[CURLOPT_POSTFIELDS] = $in;
+			}
+			curl_setopt_array($ch, $opt);
 			$out = curl_exec($ch);
 			curl_close($ch);
 			$firstResponse = explode($this->crlf.$this->crlf, $out, 2);
 			$headers = explode("\n", $firstResponse[0]);
-			$call = $this->beforeSendResponse;
 			$call($headers, $firstResponse[1]);
 			foreach ($headers as $header) {
 				$header = trim($header);
@@ -244,7 +250,6 @@ class PHPProxy
 				$firstResponse = fread($this->fp, 2048);
 				$firstResponse = explode($this->crlf.$this->crlf, $firstResponse, 2);
 				$headers = explode("\n", $firstResponse[0]);
-				$call = $this->beforeSendResponse;
 				$call($headers, $firstResponse[1]);
 				foreach ($headers as $header) {
 					$header = trim($header);
