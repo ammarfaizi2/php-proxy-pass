@@ -12,6 +12,13 @@ $app = new PHPProxy(
 	PROXY_PATH
 );
 
-$app->captureRequest();
+
+$app->afterCaptureRequest(function (&$requestHeaders, &$responseBody) {
+
+});
+
+$app->beforeSendResponse(function (&$responseHeaders, &$responseBody) {
+
+});
 
 $app->run();

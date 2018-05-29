@@ -72,6 +72,21 @@ class PHPProxy
 	private $xar = [];
 
 	/**
+	 * @var string
+	 */
+	public $crlf = "\r\n";
+
+	/**
+	 * @var callable
+	 */
+	private $afterCaptureRequest;
+
+	/**
+	 * @var callable
+	 */
+	private $beforeSendResponse;
+
+	/**
 	 * @param string $target
 	 * @param string $host
 	 * @param int	 $port
@@ -82,33 +97,77 @@ class PHPProxy
 	 */
 	public function __construct($target, $host = null, $port = null, $addPath = null)
 	{
-		$this->crlf 	= "\r\n";
 		$this->target 	= $target;
 		$this->protocol = $this->scan("protocol");
 		$this->host   	= is_null($host) ? $this->scan("host") : $host;
 		$this->port   	= is_null($port) ? $this->scan("port") : $port;
 		$this->path   	= is_null($addPath) ? $_SERVER["REQUEST_URI"] : $addPath.$_SERVER["REQUEST_URI"];
+		if (! function_exists('getallheaders')) {
+		    function getallheaders() {
+		        $headers = [];
+		        foreach ($_SERVER as $name => $value) {
+		            if (substr($name, 0, 5) == 'HTTP_') {
+		                $headers[str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($name, 5)))))] = $value;
+		            }
+		        }
+		        return $headers;
+		    }
+		}
 	}
 
-	public function captureRequest()
+	/**
+	 * @param callable $action
+	 * @return void
+	 * 
+	 */
+	public function afterCaptureRequest(callable $action)
 	{
+		$this->afterCaptureRequest = $action;
 	}
 
+	/**
+	 * @param callable $action
+	 * @return void
+	 * 
+	 */
+	public function beforeSendResponse(callable $action)
+	{
+		$this->beforeSendResponse = $action;
+	}
+
+
+	/**
+	 * @return void
+	 *
+	 * Prepare server http client.
+	 */
 	private function prepareSocks()
 	{
 		$this->fp = fsockopen(
 			($this->protocol==="https"?"ssl://":"").$this->host, $this->port
 		);
-		fwrite($this->fp, $this->buildRequestHeaders());
-		fwrite($this->fp, file_get_contents("php://input"));
+		$this->requestHeaders 	= $this->buildRequestHeaders();
+		$this->requestBody		= file_get_contents("php://input");
+		$call = $this->afterCaptureRequest;
+		$call($this->requestHeaders, $this->requestBody);
+		fwrite($this->fp, $this->requestHeaders);
+		fwrite($this->fp, $this->requestBody);
 	}
 
+	/**
+	 * @return string
+	 *
+	 * Build http request header.
+	 */
 	private function buildRequestHeaders()
 	{
 		$header = 
 			$_SERVER["REQUEST_METHOD"]." ".$this->path." HTTP/1.0".$this->crlf
-            ."Host: ".$this->host.$this->crlf
-            .$this->crlf;
+            ."Host: ".$this->host.$this->crlf;
+        foreach (getallheaders() as $key => $value) {
+        	$header .= "{$key}: ".$value.$this->crlf;
+        }
+        $header .= $this->crlf;
         return $header;
 	}
 
@@ -118,37 +177,34 @@ class PHPProxy
 		if (is_resource($this->fp) && $this->fp && !feof($this->fp)) {
 			$firstResponse = fread($this->fp, 2048);
 			$firstResponse = explode($this->crlf.$this->crlf, $firstResponse, 2);
-			$this->sendResponseHeaders($firstResponse[0]);
+			$headers = explode("\n", $firstResponse[0]);
+			$call = $this->beforeSendResponse;
+			$call($headers, $firstResponse[1]);
+			foreach ($headers as $header) {
+				$header = trim($header);
+				if (! empty($header)) {
+					$this->responseHeaders[] = $header;
+					header($header, false);
+				}
+			}
+			flush();
 			echo $firstResponse[1];
 			flush();
 			while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
-            	echo fread($this->fp, 1024);
-            	flush();
+				$out = fread($this->fp, 1024);
+				call($headers, $out);
+				echo $out;
+				flush();
 			}
 		}
         fclose($this->fp);
-	}
-
-	private function sendResponseHeaders($headers)
-	{
-		$headers = explode("\n", $headers);
-		foreach ($headers as $header) {
-			$header = trim($header);
-			if (! empty($header)) {
-				$this->responseHeaders[] = $header;
-				if (preg_match("/set-cookie/i", $header)) {
-					$header = preg_replace("/{$this->host}/i", $_SERVER["HTTP_HOST"], $header);
-				}
-				header($header);
-			}
-		}
-		flush();
 	}
 
 	/**
 	 * @param string $type
 	 * @return mixed
 	 *
+	 * Scan action.
 	 */
 	private function scan($type)
 	{
