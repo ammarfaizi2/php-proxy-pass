@@ -240,7 +240,8 @@ class PHPProxy
 					header($header, false);
 				}
 			}
-			echo $call($headers, $out, false);
+			$call($headers, $out, false);
+			echo $firstResponse[1];
 			flush();
 			return;
 		}
