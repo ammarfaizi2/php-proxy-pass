@@ -13,6 +13,7 @@ $app = new PHPProxy(
 );
 
 $app->bufferOnComplete = true;
+$app->useCurl = true;
 
 $app->afterCaptureRequest(function (&$requestHeaders, &$responseBody) {
 	$requestHeaders = explode("\n", $requestHeaders);

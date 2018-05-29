@@ -221,7 +221,18 @@ class PHPProxy
 			]);
 			$out = curl_exec($ch);
 			curl_close($ch);
-			echo $out;
+			$firstResponse = explode($this->crlf.$this->crlf, $out, 2);
+			$headers = explode("\n", $firstResponse[0]);
+			$call = $this->beforeSendResponse;
+			$call($headers, $firstResponse[1]);
+			foreach ($headers as $header) {
+				$header = trim($header);
+				if (! empty($header)) {
+					$this->responseHeaders[] = $header;
+					header($header, false);
+				}
+			}
+			echo $call($headers, $out, false);
 			flush();
 			return;
 		}
