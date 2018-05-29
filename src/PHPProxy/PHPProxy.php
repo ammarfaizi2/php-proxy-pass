@@ -2,6 +2,8 @@
 
 namespace PHPProxy;
 
+use Exception;
+
 /**
  * @author Ammar Faizi <ammarfaizi2@gmail.com> https://www.facebook.com/ammarfaizi2
  * @license MIT
@@ -9,72 +11,180 @@ namespace PHPProxy;
  */
 class PHPProxy
 {
-	private $proxyPass;
+	/**
+	 * @var resources
+	 */
+	private $fp;
 
-	private $proxyHost;
+	/**
+	 * @var string
+	 */
+	private $target;
 
-	private $proxyPort;
+	/**
+	 * @var string
+	 */
+	private $host;
 
-	private $clientRequest;
+	/**
+	 * @var string
+	 */
+	private $url;
 
-	public function __construct($proxyPass, $proxyHost, $proxyPort = 80, $proxyTimeout = 60)
+	/**
+	 * @var string
+	 */
+	private $uri;
+
+	/**
+	 * @var int
+	 */
+	private $port;
+
+	/**
+	 * @var string
+	 */
+	private $protocol;
+
+	/**
+	 * @var array
+	 */
+	private $responseHeaders = [];
+
+	/**
+	 * @var array
+	 */
+	private $requestHeaders = [];
+
+	/**
+	 * @var string
+	 */
+	private $requestBody;
+
+	/**
+	 * @var int
+	 */
+	private $xpos = 0;
+
+	/**
+	 * @var array
+	 */
+	private $xar = [];
+
+	/**
+	 * @param string $target
+	 * @param string $host
+	 * @param int	 $port
+	 * @param string $addPath
+	 * @return void
+	 *
+	 * Constructor.
+	 */
+	public function __construct($target, $host = null, $port = null, $addPath = null)
 	{
-		$this->proxyPass = $proxyPass;
-		$this->proxyHost = $proxyHost;
-		$this->proxyPort = $proxyPort;
-		$this->proxyTimeout = $proxyTimeout;
-		if (! function_exists('getallheaders')) {
-		    function getallheaders() {
-		        $headers = [];
-		        foreach ($_SERVER as $name => $value) {
-		            if (substr($name, 0, 5) == 'HTTP_') {
-		                $headers[str_replace(' ', '-', ucwords(strtolower(str_replace('_', ' ', substr($name, 5)))))] = $value;
-		            }
-		        }
-		        return $headers;
-		    }
-		}
+		$this->crlf 	= "\r\n";
+		$this->target 	= $target;
+		$this->protocol = $this->scan("protocol");
+		$this->host   	= is_null($host) ? $this->scan("host") : $host;
+		$this->port   	= is_null($port) ? $this->scan("port") : $port;
+		$this->path   	= is_null($addPath) ? $_SERVER["REQUEST_URI"] : $addPath.$_SERVER["REQUEST_URI"];
 	}
 
 	public function captureRequest()
-	{		
-		$this->clientRequest = [
-			"uri" => isset($_SERVER["REQUEST_URI"]) ? $_SERVER["REQUEST_URI"] : "/",
-			"request_method" => isset($_SERVER["REQUEST_METHOD"]) ? $_SERVER["REQUEST_METHOD"] : "GET",
-			"headers" => [], //getallheaders()
-		];
+	{
+	}
 
-		$this->clientRequest["headers"]["Host"] = $this->proxyHost;
-		$this->clientRequest["headers"]["Connection"] = "closed";
+	private function prepareSocks()
+	{
+		$this->fp = fsockopen(
+			($this->protocol==="https"?"ssl://":"").$this->host, $this->port
+		);
+		fwrite($this->fp, $this->buildRequestHeaders());
+		fwrite($this->fp, file_get_contents("php://input"));
+	}
+
+	private function buildRequestHeaders()
+	{
+		$header = 
+			$_SERVER["REQUEST_METHOD"]." ".$this->path." HTTP/1.0".$this->crlf
+            ."Host: ".$this->host.$this->crlf
+            .$this->crlf;
+        return $header;
 	}
 
 	public function run()
 	{
-		$clientHeaders = [];
-		foreach ($this->clientRequest["headers"] as $key => $header) {
-			$clientHeaders[] = "$key: $header";
+		$this->prepareSocks();
+		if (is_resource($this->fp) && $this->fp && !feof($this->fp)) {
+			$firstResponse = fread($this->fp, 2048);
+			$firstResponse = explode($this->crlf.$this->crlf, $firstResponse, 2);
+			$this->sendResponseHeaders($firstResponse[0]);
+			echo $firstResponse[1];
+			flush();
+			while(is_resource($this->fp) && $this->fp && !feof($this->fp)) {
+            	echo fread($this->fp, 1024);
+            	flush();
+			}
 		}
-		$ch = curl_init($this->proxyPass.$this->proxyPort.$this->clientRequest["uri"]);
-		curl_setopt_array($ch, [
-			CURLOPT_RETURNTRANSFER => true,
-			CURLOPT_HTTPHEADER => $clientHeaders,
-			CURLOPT_SSL_VERIFYPEER => false,
-			CURLOPT_SSL_VERIFYHOST => false,
-			CURLOPT_HEADER => true,
-			CURLOPT_FOLLOWLOCATION => false
-		]);
-		$out = curl_exec($ch);
-		$info = curl_getinfo($ch);
-		$headers = substr($out, 0, $info["header_size"]);
-		$out = substr($out, $info["header_size"]);
-		$err = curl_error($ch);
-		$ern = curl_errno($ch);
-		foreach (explode("\n", $headers) as $header) {
-			// $header = trim($header);
-			// $header and header($header);
+        fclose($this->fp);
+	}
+
+	private function sendResponseHeaders($headers)
+	{
+		$headers = explode("\n", $headers);
+		foreach ($headers as $header) {
+			$header = trim($header);
+			if (! empty($header)) {
+				$this->responseHeaders[] = $header;
+				if (preg_match("/set-cookie/i", $header)) {
+					$header = preg_replace("/{$this->host}/i", $_SERVER["HTTP_HOST"], $header);
+				}
+				header($header);
+			}
 		}
-		header("content-encoding: gzip");
-		print $out;
+		flush();
+	}
+
+	/**
+	 * @param string $type
+	 * @return mixed
+	 *
+	 */
+	private function scan($type)
+	{
+		switch ($type) {
+			case "host":
+				$req = substr($this->target, $this->xpos+3);
+				$pos = strpos($req, '/');
+				if($pos === false) {
+					$pos = strlen($req);
+				}
+				return substr($req, 0, $pos);
+				break;
+
+			case "protocol":
+        		return strtolower(
+	        		substr(
+        				$this->target,
+        				0,
+        				$this->xpos = strpos($this->target, '://')
+        			)
+        		);
+				break;
+
+			case "port":
+				if(strpos($this->host, ':') !== false) {
+		            list($this->host, $this->port) = explode(':', $host);
+		        } else {
+		            $this->port = ($this->protocol == 'https') ? 443 : 80;
+		        }
+		        return $this->port;
+				break;
+
+			default:
+				throw new Exception("Invalid scan type");
+				break;
+		}
 	}
 }
 
